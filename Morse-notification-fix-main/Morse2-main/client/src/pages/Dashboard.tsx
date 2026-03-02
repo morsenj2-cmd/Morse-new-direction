@@ -118,7 +118,7 @@ function RadarSection({
     </section>
   );
 }
-<<<<<<< HEAD
+
 
 function FollowRequestsCard({
   followRequests,
@@ -164,8 +164,7 @@ function FollowRequestsCard({
     </div>
   );
 }
-=======
->>>>>>> origin/main
+
 
 export const Dashboard = (): JSX.Element => {
   const [, setLocation] = useLocation();
@@ -327,11 +326,10 @@ export const Dashboard = (): JSX.Element => {
           icon={<Sparkles className="w-5 h-5 text-teal-400" />}
           items={(radar?.topMatches || fallbackTrending) as RadarItem[]}
           isLoading={radarLoading && launchesLoading}
-<<<<<<< HEAD
+
           emptyText=""
-=======
+
           emptyText="No top matches yet. Add profile tags to improve recommendations."
->>>>>>> origin/main
         />
 
         <RadarSection
@@ -409,15 +407,15 @@ export const Dashboard = (): JSX.Element => {
       </main>
 
       <aside className="hidden xl:block fixed right-6 top-24 w-72">
-<<<<<<< HEAD
-        {followRequests.length > 0 && (
+        
+       {followRequests.length > 0 && (
           <FollowRequestsCard
             followRequests={followRequests}
             onAccept={(id) => acceptFollow.mutate(id)}
             onDecline={(id) => declineFollow.mutate(id)}
           />
         )}
-=======
+
         <div className="rounded-xl bg-[#222] border border-white/10 p-4">
           <h3 className="text-white font-semibold mb-3">Follow requests</h3>
           {followRequests.length === 0 ? (
@@ -436,7 +434,6 @@ export const Dashboard = (): JSX.Element => {
             </div>
           )}
         </div>
->>>>>>> origin/main
       </aside>
 
       <Dialog open={isPostDialogOpen} onOpenChange={setIsPostDialogOpen}>
