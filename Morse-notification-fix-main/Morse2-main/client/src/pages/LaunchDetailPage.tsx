@@ -2,8 +2,9 @@ import { Link, useParams } from "wouter";
 import { ChevronUp, Heart, User, Rocket, Trash2 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { Button } from "@/components/ui/button";
-import { useLaunches, useCurrentUser, useUpvoteLaunch, useDeleteLaunch } from "@/lib/api";
+import { useLaunches, useCurrentUser, useUpvoteLaunch, useDeleteLaunch, useOpportunityAction } from "@/lib/api";
 import { useLocation } from "wouter";
+import { useEffect } from "react";
 
 export const LaunchDetailPage = (): JSX.Element => {
   const params = useParams<{ id: string }>();
@@ -12,16 +13,38 @@ export const LaunchDetailPage = (): JSX.Element => {
   const { data: currentUser } = useCurrentUser();
   const upvoteLaunch = useUpvoteLaunch();
   const deleteLaunch = useDeleteLaunch();
+  const opportunityAction = useOpportunityAction();
   
   const launch = launches.find((l: any) => l.id === params.id);
   const isCreator = currentUser?.id === launch?.creatorId;
 
   const handleUpvote = async () => {
     if (params.id) {
+      await opportunityAction.mutateAsync({ opportunityId: params.id, actionType: "save" });
       await upvoteLaunch.mutateAsync(params.id);
     }
   };
 
+
+  useEffect(() => {
+    if (params.id) {
+      opportunityAction.mutate({ opportunityId: params.id, actionType: "view" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.id]);
+
+  const handleDismiss = async () => {
+    if (params.id) {
+      await opportunityAction.mutateAsync({ opportunityId: params.id, actionType: "dismiss" });
+    }
+    setLocation("/launches");
+  };
+
+  const handleApply = async () => {
+    if (params.id) {
+      await opportunityAction.mutateAsync({ opportunityId: params.id, actionType: "apply" });
+    }
+  };
   const handleDelete = async () => {
     if (params.id && confirm("Are you sure you want to delete this launch?")) {
       await deleteLaunch.mutateAsync(params.id);
@@ -71,17 +94,27 @@ export const LaunchDetailPage = (): JSX.Element => {
         <div className="max-w-2xl w-full">
           {/* Upvote Section */}
           <div className="flex justify-between items-start mb-4">
-            {isCreator && (
-              <Button 
-                variant="outline" 
-                className="border-red-600 text-red-500 hover:bg-red-600 hover:text-white"
-                onClick={handleDelete}
-                data-testid="button-delete-launch"
+            <div className="flex gap-2">
+              {isCreator && (
+                <Button 
+                  variant="outline" 
+                  className="border-red-600 text-red-500 hover:bg-red-600 hover:text-white"
+                  onClick={handleDelete}
+                  data-testid="button-delete-launch"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete Launch
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                className="border-gray-600 text-gray-300 hover:bg-gray-700"
+                onClick={handleDismiss}
+                data-testid="button-dismiss-opportunity"
               >
-                <Trash2 className="w-4 h-4 mr-2" />
-                Delete Launch
+                Dismiss
               </Button>
-            )}
+            </div>
             <div className="flex-1" />
             <button
               onClick={handleUpvote}
@@ -141,6 +174,7 @@ export const LaunchDetailPage = (): JSX.Element => {
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="text-teal-400 hover:text-teal-300 underline"
+                  onClick={handleApply}
                   data-testid="link-website"
                 >
                   Visit Website

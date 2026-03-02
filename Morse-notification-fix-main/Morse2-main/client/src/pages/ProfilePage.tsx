@@ -1,11 +1,11 @@
 import { Link, useLocation } from "wouter";
-import { MessageSquare, Users, Edit, Trash2, MapPin, Tag } from "lucide-react";
+import { MessageSquare, Users, Edit, Trash2, MapPin, Tag, X } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useState, useEffect } from "react";
-import { useCurrentUser, useFeed, useUpdateUser, useDeletePost, useUserActivity } from "@/lib/api";
+import { useCurrentUser, useFeed, useUpdateUser, useDeletePost, useUserActivity, useTags, useCreateTag } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 export const ProfilePage = (): JSX.Element => {
@@ -15,11 +15,16 @@ export const ProfilePage = (): JSX.Element => {
   const { data: activity = [] } = useUserActivity();
   const updateUser = useUpdateUser();
   const deletePost = useDeletePost();
+  const { data: availableTags = [] } = useTags();
+  const createTag = useCreateTag();
   
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [tagSearchQuery, setTagSearchQuery] = useState("");
+  const [showTagDropdown, setShowTagDropdown] = useState(false);
   const [editForm, setEditForm] = useState({
     displayName: "",
     bio: "",
+    tagIds: [] as string[],
   });
 
   const userPosts = posts.filter((post: any) => post.author?.id === currentUser?.id);
@@ -28,7 +33,9 @@ export const ProfilePage = (): JSX.Element => {
     setEditForm({
       displayName: currentUser?.displayName || "",
       bio: currentUser?.bio || "",
+      tagIds: (currentUser?.tags || []).map((tag: any) => tag.id),
     });
+    setTagSearchQuery("");
     setIsEditDialogOpen(true);
   };
 
@@ -36,8 +43,45 @@ export const ProfilePage = (): JSX.Element => {
     await updateUser.mutateAsync({
       displayName: editForm.displayName,
       bio: editForm.bio,
+      tagIds: editForm.tagIds,
     });
     setIsEditDialogOpen(false);
+  };
+
+  const filteredTags = availableTags.filter((tag: any) =>
+    tag.name.toLowerCase().includes(tagSearchQuery.toLowerCase()) &&
+    !editForm.tagIds.includes(tag.id)
+  );
+
+  const toggleTag = (tagId: string) => {
+    setEditForm((prev) => {
+      if (prev.tagIds.includes(tagId)) {
+        return { ...prev, tagIds: prev.tagIds.filter((id) => id !== tagId) };
+      }
+      if (prev.tagIds.length >= 25) return prev;
+      return { ...prev, tagIds: [...prev.tagIds, tagId] };
+    });
+  };
+
+  const handleCreateTag = async () => {
+    const normalized = tagSearchQuery.toLowerCase().trim().replace(/\s+/g, " ");
+    if (!normalized) return;
+
+    const existing = availableTags.find((tag: any) => tag.name === normalized);
+    if (existing) {
+      toggleTag(existing.id);
+      setTagSearchQuery("");
+      return;
+    }
+
+    const created = await createTag.mutateAsync({ name: normalized });
+    if (created?.id) {
+      setEditForm((prev) => {
+        if (prev.tagIds.includes(created.id) || prev.tagIds.length >= 25) return prev;
+        return { ...prev, tagIds: [...prev.tagIds, created.id] };
+      });
+      setTagSearchQuery("");
+    }
   };
 
   const handleDeletePost = async (postId: string) => {
@@ -180,15 +224,72 @@ export const ProfilePage = (): JSX.Element => {
                       rows={3}
                     />
                   </div>
+                  <div>
+                    <label className="text-gray-400 text-sm mb-2 block">Tags ({editForm.tagIds.length}/25)</label>
+                    {editForm.tagIds.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        {editForm.tagIds.map((tagId) => {
+                          const tag = availableTags.find((t: any) => t.id === tagId);
+                          return tag ? (
+                            <span
+                              key={tagId}
+                              className="px-2 py-1 bg-teal-700 text-white text-xs rounded-full flex items-center gap-1"
+                              data-testid={`chip-edit-tag-${tagId}`}
+                            >
+                              {tag.name}
+                              <button type="button" onClick={() => toggleTag(tagId)} className="hover:text-red-300">
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          ) : null;
+                        })}
+                      </div>
+                    )}
+                    <div className="relative">
+                      <Input
+                        value={tagSearchQuery}
+                        onChange={(e) => setTagSearchQuery(e.target.value)}
+                        onFocus={() => setShowTagDropdown(true)}
+                        onBlur={() => setTimeout(() => setShowTagDropdown(false), 200)}
+                        placeholder="Search or create tags"
+                        data-testid="input-edit-tags-search"
+                        className="bg-[#1a1a1a] border-gray-600 text-white"
+                      />
+                      {showTagDropdown && (
+                        <div className="absolute z-50 w-full mt-1 bg-[#1a1a1a] border border-gray-600 rounded-lg max-h-48 overflow-y-auto">
+                          {filteredTags.slice(0, 25).map((tag: any) => (
+                            <button
+                              key={tag.id}
+                              type="button"
+                              className="w-full text-left px-3 py-2 text-gray-300 text-sm hover:bg-gray-700"
+                              onClick={() => {
+                                toggleTag(tag.id);
+                                setTagSearchQuery("");
+                              }}
+                              data-testid={`option-edit-tag-${tag.id}`}
+                            >
+                              {tag.name}
+                            </button>
+                          ))}
+                          {tagSearchQuery.trim().length > 1 && !filteredTags.some((tag: any) => tag.name === tagSearchQuery.toLowerCase().trim().replace(/\s+/g, " ")) && (
+                            <button
+                              type="button"
+                              className="w-full text-left px-3 py-2 text-teal-300 text-sm hover:bg-gray-700 border-t border-gray-700"
+                              onClick={handleCreateTag}
+                              disabled={createTag.isPending || editForm.tagIds.length >= 25}
+                              data-testid="button-create-edit-tag"
+                            >
+                              {createTag.isPending ? "Creating..." : `Create tag "${tagSearchQuery.trim()}"`}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                   <div className="flex gap-3">
-                    <Link href="/onboarding/tags">
-                      <Button variant="outline" className="border-gray-600 text-white hover:bg-gray-700" data-testid="button-edit-tags">
-                        Edit Tags
-                      </Button>
-                    </Link>
                     <Button 
                       onClick={handleSaveProfile}
-                      disabled={updateUser.isPending}
+                      disabled={updateUser.isPending || editForm.tagIds.length > 25}
                       data-testid="button-save-profile"
                       className="flex-1 bg-teal-700 hover:bg-teal-600"
                     >
