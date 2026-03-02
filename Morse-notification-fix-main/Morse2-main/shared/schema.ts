@@ -45,9 +45,11 @@ export const userTags = pgTable("user_tags", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   tagId: varchar("tag_id").notNull().references(() => tags.id, { onDelete: "cascade" }),
-  inferred: boolean("inferred").notNull().default(false),
-  weight: real("weight").notNull().default(1),
-  lastInteractedAt: timestamp("last_interacted_at").defaultNow(),
+
+inferred: boolean("inferred").notNull().default(false),
+weight: real("weight").notNull().default(1),
+lastInteractedAt: timestamp("last_interacted_at").defaultNow(),
+
 }, (table) => ({
   userTagIdx: index("user_tags_user_id_tag_id_idx").on(table.userId, table.tagId),
   userTagUnique: uniqueIndex("user_tags_user_id_tag_id_unique").on(table.userId, table.tagId),

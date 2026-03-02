@@ -6,6 +6,7 @@ export type OpportunityActionType = "save" | "apply" | "view" | "dismiss";
 
 const MIN_WEIGHT = 0.1;
 const MAX_WEIGHT = 5.0;
+
 const INFERRED_DAILY_DECAY = 0.02;
 const EXPLICIT_DAILY_DECAY = 0.005;
 
@@ -57,14 +58,19 @@ export async function updateUserTagWeights(userId: string, opportunityId: string
     WHERE ut.user_id = ${userId}
   `);
 
+
   const delta = clampDelta(actionType);
   if (delta === 0) return;
 
   await db.execute(sql`
     UPDATE user_tags ut
     SET
+
       weight = LEAST(${MAX_WEIGHT}, GREATEST(${MIN_WEIGHT}, COALESCE(ut.weight, 1.0) + ${delta})),
       last_interacted_at = ${now}
+
+      weight = LEAST(${MAX_WEIGHT}, GREATEST(${MIN_WEIGHT}, COALESCE(ut.weight, 1.0) + ${delta}))
+
     WHERE ut.user_id = ${userId}
       AND ut.tag_id IN (
         SELECT ot.tag_id

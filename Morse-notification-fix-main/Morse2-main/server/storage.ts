@@ -730,6 +730,7 @@ export class DatabaseStorage implements IStorage {
     const strongFilter = userTagCount >= 3;
     const softFilter = userTagCount > 0 && userTagCount < 3;
 
+
     const TOP_MATCH_TARGET = 10;
     const tier1Personalized = strongFilter
       ? sortByRadar(enriched.filter((e) => e.tagOverlapScore >= 0.35))
@@ -747,6 +748,13 @@ export class DatabaseStorage implements IStorage {
 
     const tier3GlobalSafety = sortByRadar(globalTrending);
     const topBase = uniqueById([...tier1Personalized, ...tier2SoftFallback, ...tier3GlobalSafety]).slice(0, TOP_MATCH_TARGET);
+
+    const topBase = strongFilter
+      ? sortByRadar(enriched.filter((e) => e.tagOverlapScore >= 0.35))
+      : softFilter
+        ? sortByRadar(enriched.filter((e) => e.tagOverlapScore >= 0.1))
+        : globalTrending;
+
 
     const emergingBase = strongFilter
       ? sortByRadar(enriched.filter((e) => e.isEmerging && e.tagOverlapScore >= 0.25))
@@ -772,7 +780,11 @@ export class DatabaseStorage implements IStorage {
     };
 
     return {
+
       topMatches: fill(topBase, tier3GlobalSafety, 6),
+
+      topMatches: fill(topBase, globalTrending),
+
       emergingStartups: fill(emergingBase, globalTrending.filter((e) => e.isEmerging), 6),
       trendingInYourStack: fill(trendingStackBase, globalTrending),
       freelanceSignals: fill(freelanceBase, globalTrending),

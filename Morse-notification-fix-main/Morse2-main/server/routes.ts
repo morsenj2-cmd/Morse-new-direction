@@ -135,14 +135,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (uniqueTagIds.length > MAX_PROFILE_TAGS) {
           return res.status(400).json({ message: `You can select up to ${MAX_PROFILE_TAGS} tags` });
         }
-
+    
         await storage.setUserTags(user.id, uniqueTagIds);
 
         const isSignupTagSelection = onboardingComplete === true && uniqueTagIds.length === 5;
         if (isSignupTagSelection) {
-          await storage.addInferredUserTags(user.id, uniqueTagIds);
-        }
-      }
+        await storage.addInferredUserTags(user.id, uniqueTagIds);
+    }
 
       const userTags = await storage.getUserTags(user.id);
       res.json({ ...updated, tags: userTags });

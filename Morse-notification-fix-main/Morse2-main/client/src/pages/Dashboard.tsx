@@ -118,6 +118,7 @@ function RadarSection({
     </section>
   );
 }
+<<<<<<< HEAD
 
 function FollowRequestsCard({
   followRequests,
@@ -163,6 +164,8 @@ function FollowRequestsCard({
     </div>
   );
 }
+=======
+>>>>>>> origin/main
 
 export const Dashboard = (): JSX.Element => {
   const [, setLocation] = useLocation();
@@ -324,7 +327,11 @@ export const Dashboard = (): JSX.Element => {
           icon={<Sparkles className="w-5 h-5 text-teal-400" />}
           items={(radar?.topMatches || fallbackTrending) as RadarItem[]}
           isLoading={radarLoading && launchesLoading}
+<<<<<<< HEAD
           emptyText=""
+=======
+          emptyText="No top matches yet. Add profile tags to improve recommendations."
+>>>>>>> origin/main
         />
 
         <RadarSection
@@ -402,6 +409,7 @@ export const Dashboard = (): JSX.Element => {
       </main>
 
       <aside className="hidden xl:block fixed right-6 top-24 w-72">
+<<<<<<< HEAD
         {followRequests.length > 0 && (
           <FollowRequestsCard
             followRequests={followRequests}
@@ -409,6 +417,26 @@ export const Dashboard = (): JSX.Element => {
             onDecline={(id) => declineFollow.mutate(id)}
           />
         )}
+=======
+        <div className="rounded-xl bg-[#222] border border-white/10 p-4">
+          <h3 className="text-white font-semibold mb-3">Follow requests</h3>
+          {followRequests.length === 0 ? (
+            <p className="text-gray-400 text-sm">No pending requests</p>
+          ) : (
+            <div className="space-y-3">
+              {followRequests.slice(0, 3).map((request: any) => (
+                <div key={request.id} className="p-3 rounded-lg bg-[#2c2c2c] border border-white/10">
+                  <p className="text-white text-sm truncate">{request.follower?.displayName || request.follower?.username}</p>
+                  <div className="flex gap-2 mt-2">
+                    <Button size="sm" className="flex-1 bg-teal-700 hover:bg-teal-600" onClick={() => acceptFollow.mutate(request.id)}>Accept</Button>
+                    <Button size="sm" variant="outline" className="flex-1 border-white/20 text-gray-300" onClick={() => declineFollow.mutate(request.id)}>Decline</Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+>>>>>>> origin/main
       </aside>
 
       <Dialog open={isPostDialogOpen} onOpenChange={setIsPostDialogOpen}>
