@@ -1,6 +1,6 @@
 import { 
   users, tags, userTags, posts, postTags, communities, communityTags, 
-  communityMembers, follows, likes, comments, launches, launchTags, launchUpvotes,
+  communityMembers, follows, likes, comments, launches, launchTags, opportunityTags, launchUpvotes,
   conversations, messages, threads, threadComments,
   broadcasts, broadcastTags, broadcastRecipients, blogPosts, notifications,
   type User, type InsertUser, type Tag, type InsertTag, 
@@ -13,6 +13,8 @@ import { db } from "./db";
 import { eq, and, desc, inArray, or, sql, gte, lt } from "drizzle-orm";
 import { sendEmail } from "./services/emailService";
 import { newDMEmail, newFollowRequestEmail } from "./lib/emailTemplates";
+import { scoreOpportunityForUser, type UserTagWeight } from "./services/opportunityService";
+import { queueMessageEmailNotification } from "./services/messageEmailQueue";
 
 export interface IStorage {
   // Users
@@ -26,6 +28,7 @@ export interface IStorage {
   // Tags
   getTags(): Promise<Tag[]>;
   getTag(id: string): Promise<Tag | undefined>;
+  getTagByName(name: string): Promise<Tag | undefined>;
   createTag(tag: InsertTag): Promise<Tag>;
   getUserTags(userId: string): Promise<Tag[]>;
   setUserTags(userId: string, tagIds: string[]): Promise<void>;
@@ -68,12 +71,15 @@ export interface IStorage {
   
   // Launches
   getLaunches(): Promise<(Launch & { creator: User })[]>;
+  getLaunchById(launchId: string): Promise<Launch | undefined>;
   getTodaysLaunches(): Promise<(Launch & { creator: User })[]>;
   getYesterdaysTopLaunches(): Promise<(Launch & { creator: User })[]>;
   getRecommendedLaunches(userId: string): Promise<(Launch & { creator: User; matchingTags: number })[]>;
+  getOpportunityRadar(userId: string): Promise<{ topMatches: any[]; emergingStartups: any[]; trendingInYourStack: any[]; freelanceSignals: any[] }>;
   deleteOldLaunches(): Promise<number>;
   createLaunch(launch: InsertLaunch): Promise<Launch>;
   setLaunchTags(launchId: string, tagIds: string[]): Promise<void>;
+  setOpportunityTags(opportunityId: string, tagIds: string[]): Promise<void>;
   upvoteLaunch(launchId: string, userId: string): Promise<{ success: boolean; alreadyUpvoted: boolean }>;
   hasUserUpvoted(launchId: string, userId: string): Promise<boolean>;
   deleteLaunch(launchId: string, userId: string): Promise<void>;
@@ -194,8 +200,14 @@ export class DatabaseStorage implements IStorage {
     return tag || undefined;
   }
 
+  async getTagByName(name: string): Promise<Tag | undefined> {
+    const [tag] = await db.select().from(tags).where(eq(tags.name, name));
+    return tag || undefined;
+  }
+
   async createTag(insertTag: InsertTag): Promise<Tag> {
-    const [tag] = await db.insert(tags).values(insertTag).returning();
+    const normalizedName = insertTag.name.toLowerCase().trim();
+    const [tag] = await db.insert(tags).values({ ...insertTag, name: normalizedName }).returning();
     return tag;
   }
 
@@ -450,6 +462,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Launches
+  async getLaunchById(launchId: string): Promise<Launch | undefined> {
+    const [launch] = await db.select().from(launches).where(eq(launches.id, launchId));
+    return launch || undefined;
+  }
+
   async getLaunches(): Promise<(Launch & { creator: User })[]> {
     const result = await db
       .select({ launch: launches, creator: users })
@@ -506,38 +523,188 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRecommendedLaunches(userId: string): Promise<(Launch & { creator: User; matchingTags: number })[]> {
-    // Get user's tag IDs
+    const [userRecord] = await db.select().from(users).where(eq(users.id, userId));
     const userTagRecords = await db.select().from(userTags).where(eq(userTags.userId, userId));
-    const userTagIds = userTagRecords.map(ut => ut.tagId);
-    
-    if (userTagIds.length === 0) {
-      return [];
-    }
-    
-    // Get all launches with their tags
+    const userTagWeights: UserTagWeight[] = userTagRecords.map((ut) => ({
+      tagId: ut.tagId,
+      weight: Number(ut.weight ?? 1),
+    }));
+
     const allLaunches = await db
       .select({ launch: launches, creator: users })
       .from(launches)
       .innerJoin(users, eq(launches.creatorId, users.id))
-      .orderBy(desc(launches.upvotesCount), desc(launches.createdAt));
-    
-    // For each launch, count matching tags
-    const launchesWithMatchCount = await Promise.all(
+      .orderBy(desc(launches.createdAt), desc(launches.upvotesCount));
+
+    const scoredLaunches = await Promise.all(
       allLaunches.map(async (r) => {
-        const launchTagRecords = await db.select().from(launchTags).where(eq(launchTags.launchId, r.launch.id));
-        const launchTagIds = launchTagRecords.map(lt => lt.tagId);
-        const matchingTags = launchTagIds.filter(tagId => userTagIds.includes(tagId)).length;
-        return { ...r.launch, creator: r.creator, matchingTags };
+        const opportunityTagRecords = await db
+          .select()
+          .from(opportunityTags)
+          .where(eq(opportunityTags.opportunityId, r.launch.id));
+
+        const fallbackLaunchTagRecords = opportunityTagRecords.length === 0
+          ? await db.select().from(launchTags).where(eq(launchTags.launchId, r.launch.id))
+          : [];
+
+        const opportunityTagIds = (opportunityTagRecords.length > 0
+          ? opportunityTagRecords.map((t) => t.tagId)
+          : fallbackLaunchTagRecords.map((t) => t.tagId));
+        const tagMeta = opportunityTagIds.length > 0
+          ? await db.select().from(tags).where(inArray(tags.id, opportunityTagIds))
+          : [];
+
+        const breakdown = scoreOpportunityForUser(
+          { id: userId, tags: userTagWeights, openToJobs: userRecord?.openToJobs },
+          {
+            id: r.launch.id,
+            tagIds: opportunityTagIds,
+            tagNames: tagMeta.map((t) => String(t.name).toLowerCase()),
+            title: r.launch.name,
+            description: r.launch.description,
+            createdAt: r.launch.createdAt,
+            source: "community",
+            websiteUrl: r.launch.websiteUrl,
+          }
+        );
+
+        const userTagIdSet = new Set(userTagWeights.map((t) => t.tagId));
+        const matchingTags = Array.from(new Set(opportunityTagIds)).filter((id) => userTagIdSet.has(id)).length;
+
+        return {
+          ...r.launch,
+          creator: r.creator,
+          matchingTags,
+          recommendedScore: breakdown.score,
+          tagOverlapScore: breakdown.skillOverlapWeight,
+        };
       })
     );
-    
-    // Filter to only those with at least 2 matching tags and sort by matching tags, then upvotes
-    return launchesWithMatchCount
-      .filter(launch => launch.matchingTags >= 2)
-      .sort((a, b) => {
-        if (b.matchingTags !== a.matchingTags) return b.matchingTags - a.matchingTags;
-        return (b.upvotesCount || 0) - (a.upvotesCount || 0);
+
+    return scoredLaunches
+      .sort((a, b) =>
+        b.recommendedScore - a.recommendedScore ||
+        new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime() ||
+        b.id.localeCompare(a.id)
+      );
+  }
+
+  async getOpportunityRadar(userId: string): Promise<{ topMatches: any[]; emergingStartups: any[]; trendingInYourStack: any[]; freelanceSignals: any[] }> {
+    const [userRecord] = await db.select().from(users).where(eq(users.id, userId));
+    const userTagRecords = await db.select().from(userTags).where(eq(userTags.userId, userId));
+    const userTagWeights: UserTagWeight[] = userTagRecords.map((ut) => ({ tagId: ut.tagId, weight: Number(ut.weight ?? 1) }));
+    const userTagIdSet = new Set(userTagWeights.map((t) => t.tagId));
+
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const allLaunches = await db
+      .select({ launch: launches, creator: users })
+      .from(launches)
+      .innerJoin(users, eq(launches.creatorId, users.id))
+      .orderBy(desc(launches.createdAt), desc(launches.upvotesCount));
+
+    const enriched = await Promise.all(allLaunches.map(async (r) => {
+      const oTags = await db.select().from(opportunityTags).where(eq(opportunityTags.opportunityId, r.launch.id));
+      const lTags = oTags.length === 0 ? await db.select().from(launchTags).where(eq(launchTags.launchId, r.launch.id)) : [];
+      const tagIds = (oTags.length > 0 ? oTags.map((t) => t.tagId) : lTags.map((t) => t.tagId));
+      const tagMeta = tagIds.length > 0 ? await db.select().from(tags).where(inArray(tags.id, tagIds)) : [];
+
+      const score = scoreOpportunityForUser(
+        { id: userId, tags: userTagWeights, openToJobs: userRecord?.openToJobs },
+        {
+          id: r.launch.id,
+          tagIds,
+          tagNames: tagMeta.map((t) => String(t.name).toLowerCase()),
+          title: r.launch.name,
+          description: r.launch.description,
+          createdAt: r.launch.createdAt,
+          source: "community",
+          websiteUrl: r.launch.websiteUrl,
+        },
+        now
+      );
+
+      const matchingTags = Array.from(new Set(tagIds)).filter((id) => userTagIdSet.has(id)).length;
+      const tagNames = tagMeta.map((t) => String(t.name).toLowerCase());
+      const text = `${r.launch.name || ""} ${r.launch.tagline || ""} ${r.launch.description || ""}`.toLowerCase();
+
+      return {
+        ...r.launch,
+        creator: r.creator,
+        matchingTags,
+        tagIds,
+        tagNames,
+        radarScore: score.score,
+        tagOverlapScore: score.skillOverlapWeight,
+        recencyWeight: score.recencyWeight,
+        sourceQualityWeight: score.sourceQualityWeight,
+        isEmerging: !!r.launch.createdAt && new Date(r.launch.createdAt) >= sevenDaysAgo,
+        isFreelanceSignal: tagNames.some((n) => ["freelance", "contract", "gig", "consulting"].includes(n)) || /(freelance|contract|gig|consult)/.test(text),
+      };
+    }));
+
+    const uniqueById = (items: any[]) => {
+      const seen = new Set<string>();
+      return items.filter((item) => {
+        if (seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
       });
+    };
+
+    const sortByRadar = (items: any[]) => [...items].sort((a, b) =>
+      b.radarScore - a.radarScore ||
+      (b.upvotesCount || 0) - (a.upvotesCount || 0) ||
+      new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime() ||
+      b.id.localeCompare(a.id)
+    );
+
+    const globalTrending = [...enriched].sort((a, b) =>
+      (b.upvotesCount || 0) - (a.upvotesCount || 0) ||
+      new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime() ||
+      b.id.localeCompare(a.id)
+    );
+
+    const userTagCount = userTagWeights.length;
+    const strongFilter = userTagCount >= 3;
+    const softFilter = userTagCount > 0 && userTagCount < 3;
+
+    const topBase = strongFilter
+      ? sortByRadar(enriched.filter((e) => e.tagOverlapScore >= 0.35))
+      : softFilter
+        ? sortByRadar(enriched.filter((e) => e.tagOverlapScore >= 0.1))
+        : globalTrending;
+
+    const emergingBase = strongFilter
+      ? sortByRadar(enriched.filter((e) => e.isEmerging && e.tagOverlapScore >= 0.25))
+      : softFilter
+        ? sortByRadar(enriched.filter((e) => e.isEmerging && e.tagOverlapScore >= 0.05))
+        : globalTrending.filter((e) => e.isEmerging);
+
+    const trendingStackBase = strongFilter
+      ? sortByRadar(enriched.filter((e) => e.matchingTags > 0))
+      : softFilter
+        ? sortByRadar(enriched.filter((e) => e.tagOverlapScore > 0))
+        : globalTrending;
+
+    const freelanceBase = strongFilter
+      ? sortByRadar(enriched.filter((e) => e.isFreelanceSignal && e.tagOverlapScore >= 0.1))
+      : softFilter
+        ? sortByRadar(enriched.filter((e) => e.isFreelanceSignal))
+        : globalTrending.filter((e) => e.isFreelanceSignal);
+
+    const fill = (primary: any[], fallback: any[], count = 6) => {
+      const merged = uniqueById([...primary, ...fallback]);
+      return merged.slice(0, count);
+    };
+
+    return {
+      topMatches: fill(topBase, globalTrending),
+      emergingStartups: fill(emergingBase, globalTrending.filter((e) => e.isEmerging), 6),
+      trendingInYourStack: fill(trendingStackBase, globalTrending),
+      freelanceSignals: fill(freelanceBase, globalTrending),
+    };
   }
 
   async createLaunch(insertLaunch: InsertLaunch): Promise<Launch> {
@@ -549,6 +716,14 @@ export class DatabaseStorage implements IStorage {
     await db.delete(launchTags).where(eq(launchTags.launchId, launchId));
     if (tagIds.length > 0) {
       await db.insert(launchTags).values(tagIds.map(tagId => ({ launchId, tagId })));
+    }
+  }
+
+  async setOpportunityTags(opportunityId: string, tagIds: string[]): Promise<void> {
+    await db.delete(opportunityTags).where(eq(opportunityTags.opportunityId, opportunityId));
+    const uniqueTagIds = Array.from(new Set(tagIds));
+    if (uniqueTagIds.length > 0) {
+      await db.insert(opportunityTags).values(uniqueTagIds.map(tagId => ({ opportunityId, tagId })));
     }
   }
 
@@ -820,50 +995,7 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
 
-    try {
-      const conversation = await db.query.conversations.findFirst({
-        where: eq(conversations.id, conversationId)
-      });
-
-      if (conversation) {
-        const receiverId =
-          conversation.participant1Id === senderId
-            ? conversation.participant2Id
-            : conversation.participant1Id;
-
-        if (receiverId !== senderId) {
-          const receiver = await this.getUser(receiverId);
-          const sender = await this.getUser(senderId);
-
-          if (receiver && sender) {
-            await this.createNotification({
-            recipientId: recipient.id,
-            actorId: sender.id,
-            entityId: follow.id,
-            type: "follow_request",
-            title: "New follow request",
-            body: `${sender.username} wants to follow you`,
-          });
-
-            if (receiver.email) {
-              const email = newDMEmail(
-                receiver.username || "User",
-                sender.username || "Someone",
-                content.slice(0, 200)
-              );
-
-              await sendEmail({
-                to: receiver.email,
-                subject: email.subject,
-                html: email.html
-              });
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.error("DM email failed:", err);
-    }
+    queueMessageEmailNotification(msg.id);
 
     await db
       .update(conversations)
