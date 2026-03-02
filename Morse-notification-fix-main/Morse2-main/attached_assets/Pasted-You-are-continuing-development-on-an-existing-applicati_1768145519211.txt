@@ -1,0 +1,118 @@
+You are continuing development on an existing application.
+Do not redesign UI, restructure pages, or refactor architecture unless required for correctness.
+
+This prompt exists only to re-anchor the system around the tag-based logic, which is foundational and must not be weakened or bypassed.
+
+CORE REMINDER — TAGS ARE THE SYSTEM
+
+Tags are not a feature.
+Tags are the underlying graph of the platform.
+
+Every user, post, community, broadcast, launch, and recommendation must reference tags
+
+Tags are mandatory system metadata
+
+Tags are never visible to other users
+
+Tags never block access; they influence ranking, relevance, and targeting
+
+REQUIRED TAG ATTACHMENT (NO EXCEPTIONS)
+
+Ensure the following entities always store and use tags:
+
+Users (selected at onboarding)
+
+Posts (global + community)
+
+Communities (subs)
+
+Broadcasts
+
+Product / project launches
+
+Search queries (when applicable)
+
+If any of these can exist without tags, that is a bug.
+
+TAG-DRIVEN BEHAVIOR (RE-VERIFY)
+Feeds
+
+Rank content higher when tag overlap with the viewer is higher
+
+Do not hard-filter content
+
+Maintain mixed feeds with weighted ordering
+
+Search
+
+Tags outweigh text descriptions
+
+Results sorted by tag relevance score
+
+Name matches still allowed but ranked below strong tag matches
+
+Communities
+
+Automated join invitations based on tag overlap
+
+Community discovery ranking powered by tags
+
+Profiles
+
+Profile discovery driven by tag similarity
+
+Tags remain hidden in UI
+
+BROADCAST TAG ENFORCEMENT
+
+Broadcasts must require tags
+
+Broadcast tags are private and invisible
+
+Recipient eligibility must match broadcast tags
+
+Broadcasts must never ignore tag matching even if connection degree matches
+
+POSTING CONTEXT TAG CHECK
+
+Global posts require tags and must respect professional-content rules
+
+Community posts require tags but allow memes
+
+Meme warning system must not bypass tag logic
+
+DATA & INDEXING CHECK
+
+Ensure tags are:
+
+Indexed
+
+Normalized
+
+Query-efficient
+
+No duplicated or free-text-only tag storage
+
+No hardcoded tag lists without extensibility
+
+FAILURE CONDITIONS
+
+Treat the following as blocking issues:
+
+Any feed not using tags
+
+Any recommendation ignoring tags
+
+Any broadcast sent without tag matching
+
+Any entity created without tags
+
+Tags exposed in UI
+
+FINAL DIRECTIVE
+
+Do not add new features.
+Do not change UX.
+Do not simplify tag logic.
+
+Preserve and enforce the tag-based system exactly as specified.
