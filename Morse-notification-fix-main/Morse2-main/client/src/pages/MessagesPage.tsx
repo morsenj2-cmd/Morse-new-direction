@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { useState, useEffect, useRef } from "react";
 import { useConversations, useConversation, useSendMessage, useCurrentUser } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
+import { markMessagesRead } from "@/lib/messageRealtime";
 
 export const MessagesPage = (): JSX.Element => {
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -21,6 +22,10 @@ export const MessagesPage = (): JSX.Element => {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    markMessagesRead();
+  }, []);
 
   const handleSendMessage = async () => {
     if (!messageInput.trim() || !selectedConversationId) return;

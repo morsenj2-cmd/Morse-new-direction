@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, boolean, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, boolean, integer, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -20,16 +20,59 @@ export const users = pgTable("users", {
 export const tags = pgTable("tags", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull().unique(),
+  normalizedName: text("normalized_name").notNull().unique(),
   description: text("description"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  normalizedNameIdx: uniqueIndex("tags_normalized_name_unique").on(table.normalizedName),
+}));
 
-// User-Tag relationship (tags users select during onboarding)
+export const tagAliases = pgTable("tag_aliases", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  alias: text("alias").notNull(),
+  normalizedAlias: text("normalized_alias").notNull().unique(),
+  canonicalTagId: varchar("canonical_tag_id").notNull().references(() => tags.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  normalizedAliasIdx: uniqueIndex("tag_aliases_normalized_alias_unique").on(table.normalizedAlias),
+  canonicalTagIdx: index("tag_aliases_canonical_tag_idx").on(table.canonicalTagId),
+}));
+
+// User-Tag relationship (weighted user preference vector)
 export const userTags = pgTable("user_tags", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   tagId: varchar("tag_id").notNull().references(() => tags.id, { onDelete: "cascade" }),
-});
+  weight: integer("weight").notNull().default(1),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  userTagUniqueIdx: uniqueIndex("user_tags_user_tag_unique").on(table.userId, table.tagId),
+  userTagOverlapIdx: index("user_tags_tag_user_overlap_idx").on(table.tagId, table.userId),
+}));
+
+export const opportunities = pgTable("opportunities", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title").notNull(),
+  description: text("description"),
+  type: text("type").notNull(),
+  qualityScore: integer("quality_score").notNull().default(0),
+  source: text("source").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  opportunitiesRecencyIdx: index("opportunities_created_at_idx").on(table.createdAt),
+  opportunitiesTrendingIdx: index("opportunities_quality_created_idx").on(table.qualityScore, table.createdAt),
+  opportunitiesTypeIdx: index("opportunities_type_idx").on(table.type),
+}));
+
+export const opportunityTags = pgTable("opportunity_tags", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  opportunityId: varchar("opportunity_id").notNull().references(() => opportunities.id, { onDelete: "cascade" }),
+  tagId: varchar("tag_id").notNull().references(() => tags.id, { onDelete: "cascade" }),
+  weight: integer("weight").notNull().default(1),
+}, (table) => ({
+  opportunityTagUniqueIdx: uniqueIndex("opportunity_tags_opportunity_tag_unique").on(table.opportunityId, table.tagId),
+  opportunityTagOverlapIdx: index("opportunity_tags_tag_opportunity_overlap_idx").on(table.tagId, table.opportunityId),
+}));
 
 // Communities
 export const communities = pgTable("communities", {
@@ -222,11 +265,26 @@ export const tagsRelations = relations(tags, ({ many }) => ({
   userTags: many(userTags),
   postTags: many(postTags),
   communityTags: many(communityTags),
+  tagAliases: many(tagAliases),
+  opportunityTags: many(opportunityTags),
 }));
 
 export const userTagsRelations = relations(userTags, ({ one }) => ({
   user: one(users, { fields: [userTags.userId], references: [users.id] }),
   tag: one(tags, { fields: [userTags.tagId], references: [tags.id] }),
+}));
+
+export const tagAliasesRelations = relations(tagAliases, ({ one }) => ({
+  canonicalTag: one(tags, { fields: [tagAliases.canonicalTagId], references: [tags.id] }),
+}));
+
+export const opportunitiesRelations = relations(opportunities, ({ many }) => ({
+  opportunityTags: many(opportunityTags),
+}));
+
+export const opportunityTagsRelations = relations(opportunityTags, ({ one }) => ({
+  opportunity: one(opportunities, { fields: [opportunityTags.opportunityId], references: [opportunities.id] }),
+  tag: one(tags, { fields: [opportunityTags.tagId], references: [tags.id] }),
 }));
 
 export const communitiesRelations = relations(communities, ({ one, many }) => ({
@@ -318,7 +376,10 @@ export const blogPostsRelations = relations(blogPosts, ({ one }) => ({
 
 // Zod schemas for validation
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
-export const insertTagSchema = createInsertSchema(tags).omit({ id: true, createdAt: true });
+export const insertTagSchema = createInsertSchema(tags).omit({ id: true, createdAt: true, normalizedName: true });
+export const insertTagAliasSchema = createInsertSchema(tagAliases).omit({ id: true, createdAt: true });
+export const insertOpportunitySchema = createInsertSchema(opportunities).omit({ id: true, createdAt: true });
+export const insertOpportunityTagSchema = createInsertSchema(opportunityTags).omit({ id: true });
 export const insertPostSchema = createInsertSchema(posts).omit({ id: true, createdAt: true, likesCount: true, commentsCount: true, repostsCount: true });
 export const insertCommunitySchema = createInsertSchema(communities).omit({ id: true, createdAt: true });
 export const insertFollowSchema = createInsertSchema(follows).omit({ id: true, createdAt: true });
@@ -335,6 +396,13 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type Tag = typeof tags.$inferSelect;
 export type InsertTag = z.infer<typeof insertTagSchema>;
+export type TagAlias = typeof tagAliases.$inferSelect;
+export type InsertTagAlias = z.infer<typeof insertTagAliasSchema>;
+export type OpportunityType = "job" | "freelance" | "startup" | "repo" | "tool";
+export type Opportunity = typeof opportunities.$inferSelect;
+export type InsertOpportunity = z.infer<typeof insertOpportunitySchema>;
+export type OpportunityTag = typeof opportunityTags.$inferSelect;
+export type InsertOpportunityTag = z.infer<typeof insertOpportunityTagSchema>;
 export type Post = typeof posts.$inferSelect;
 export type InsertPost = z.infer<typeof insertPostSchema>;
 export type Community = typeof communities.$inferSelect;
@@ -357,6 +425,8 @@ export type BlogPost = typeof blogPosts.$inferSelect;
 export type InsertBlogPost = z.infer<typeof insertBlogPostSchema>;
 export type Broadcast = typeof broadcasts.$inferSelect;
 export type InsertBroadcast = z.infer<typeof insertBroadcastSchema>;
+export type NotificationCooldown = typeof notificationCooldowns.$inferSelect;
+export type UserNotificationSetting = typeof userNotificationSettings.$inferSelect;
 
  // Notifications
  export const notifications = pgTable("notifications", {
@@ -377,4 +447,28 @@ export type InsertBroadcast = z.infer<typeof insertBroadcastSchema>;
   read: boolean("read").default(false),
 
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+
+export const notificationCooldowns = pgTable("notification_cooldowns", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  conversationId: varchar("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  lastSentAt: timestamp("last_sent_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  cooldownUserConversationUniqueIdx: uniqueIndex("notification_cooldowns_user_conversation_unique").on(table.userId, table.conversationId),
+  cooldownLastSentIdx: index("notification_cooldowns_last_sent_idx").on(table.lastSentAt),
+}));
+
+export const userNotificationSettings = pgTable("user_notification_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }).unique(),
+  emailNotificationsEnabled: boolean("email_notifications_enabled").notNull().default(true),
+  emailMessagesEnabled: boolean("email_messages_enabled").notNull().default(true),
+  pushNotificationsEnabled: boolean("push_notifications_enabled").notNull().default(true),
+  weeklyDigestEnabled: boolean("weekly_digest_enabled").notNull().default(true),
+  opportunityAlertsEnabled: boolean("opportunity_alerts_enabled").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });

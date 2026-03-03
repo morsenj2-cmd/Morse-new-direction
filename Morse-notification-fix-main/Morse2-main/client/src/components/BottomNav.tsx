@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Menu, X } from "lucide-react";
 import { useState, useRef, useEffect, useMemo } from "react";
+import { subscribeUnreadCount } from "@/lib/messageRealtime";
 
 const ADMIN_EMAIL = "prayagbiju78@gmail.com";
 
@@ -15,6 +16,7 @@ export const BottomNav = ({ activePage }: BottomNavProps): JSX.Element => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { user } = useUser();
+  const [unreadMessages, setUnreadMessages] = useState(0);
 
   const isAdmin = user?.primaryEmailAddress?.emailAddress === ADMIN_EMAIL;
 
@@ -58,6 +60,10 @@ export const BottomNav = ({ activePage }: BottomNavProps): JSX.Element => {
     }
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [menuOpen]);
+
+  useEffect(() => {
+    return subscribeUnreadCount(setUnreadMessages);
+  }, []);
 
   const isHamburgerActive = hamburgerItems.some((item) => isActive(item.path));
 
@@ -109,9 +115,16 @@ export const BottomNav = ({ activePage }: BottomNavProps): JSX.Element => {
           </Link>
 
           <Link href="/messages">
-            <span className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            <span className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors inline-flex items-center gap-1 ${
               isActive("/messages") ? "text-teal-400" : "text-gray-300"
-            }`}>Messages</span>
+            }`}>
+              Messages
+              {unreadMessages > 0 && (
+                <span className="bg-red-500 text-white text-[10px] rounded-full px-1.5 py-0.5 min-w-[16px] text-center">
+                  {unreadMessages > 99 ? "99+" : unreadMessages}
+                </span>
+              )}
+            </span>
           </Link>
         
           <Link href="/requests">
@@ -150,7 +163,14 @@ export const BottomNav = ({ activePage }: BottomNavProps): JSX.Element => {
                 } text-white hover:bg-gray-600 rounded-lg px-6 py-2 text-sm whitespace-nowrap`}
                 data-testid={`button-nav-${tab.name.toLowerCase().replace(/\s/g, "-")}`}
               >
-                {tab.name}
+                <span className="inline-flex items-center gap-1">
+                  {tab.name}
+                  {tab.path === "/messages" && unreadMessages > 0 && (
+                    <span className="bg-red-500 text-white text-[10px] rounded-full px-1.5 py-0.5 min-w-[16px] text-center">
+                      {unreadMessages > 99 ? "99+" : unreadMessages}
+                    </span>
+                  )}
+                </span>
               </Button>
             </Link>
           ))}

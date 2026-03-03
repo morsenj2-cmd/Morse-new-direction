@@ -2,7 +2,7 @@ import {
   users, tags, userTags, posts, postTags, communities, communityTags, 
   communityMembers, follows, likes, comments, launches, launchTags, launchUpvotes,
   conversations, messages, threads, threadComments,
-  broadcasts, broadcastTags, broadcastRecipients, blogPosts, notifications,
+  broadcasts, broadcastTags, broadcastRecipients, blogPosts, notifications, userNotificationSettings,
   type User, type InsertUser, type Tag, type InsertTag, 
   type Post, type InsertPost, type Community, type InsertCommunity,
   type Follow, type InsertFollow, type Launch, type InsertLaunch,
@@ -13,6 +13,41 @@ import { db } from "./db";
 import { eq, and, desc, inArray, or, sql, gte, lt } from "drizzle-orm";
 import { sendEmail } from "./services/emailService";
 import { newDMEmail, newFollowRequestEmail } from "./lib/emailTemplates";
+import { normalizeTagName } from "./services/tagIntelligence";
+
+const DEFAULT_STARTER_TAGS = ["artificial-intelligence", "startups", "product", "engineering", "growth"];
+
+async function assignDefaultStarterTags(userId: string): Promise<void> {
+  const existing = await db
+    .select({ id: userTags.id })
+    .from(userTags)
+    .where(eq(userTags.userId, userId))
+    .limit(1);
+
+  if (existing.length > 0) return;
+
+  for (const starterTag of DEFAULT_STARTER_TAGS) {
+    const normalizedName = normalizeTagName(starterTag);
+    if (!normalizedName) continue;
+
+    const [tag] = await db
+      .insert(tags)
+      .values({
+        name: starterTag,
+        normalizedName,
+      })
+      .onConflictDoUpdate({
+        target: tags.normalizedName,
+        set: { name: starterTag },
+      })
+      .returning();
+
+    await db
+      .insert(userTags)
+      .values({ userId, tagId: tag.id, weight: 1 })
+      .onConflictDoNothing({ target: [userTags.userId, userTags.tagId] });
+  }
+}
 
 export interface IStorage {
   // Users
@@ -142,6 +177,14 @@ export class DatabaseStorage implements IStorage {
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const [user] = await db.insert(users).values(insertUser).returning();
+
+    await db
+      .insert(userNotificationSettings)
+      .values({ userId: user.id })
+      .onConflictDoNothing({ target: userNotificationSettings.userId });
+
+    await assignDefaultStarterTags(user.id);
+
     return user;
   }
 
@@ -195,7 +238,25 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createTag(insertTag: InsertTag): Promise<Tag> {
-    const [tag] = await db.insert(tags).values(insertTag).returning();
+    const normalizedName = normalizeTagName(insertTag.name);
+    if (!normalizedName) {
+      throw new Error("Tag name is required");
+    }
+
+    const [tag] = await db
+      .insert(tags)
+      .values({
+        ...insertTag,
+        normalizedName,
+      })
+      .onConflictDoUpdate({
+        target: tags.normalizedName,
+        set: {
+          name: insertTag.name,
+          description: insertTag.description ?? null,
+        },
+      })
+      .returning();
     return tag;
   }
 
@@ -820,56 +881,11 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
 
-    try {
-      const conversation = await db.query.conversations.findFirst({
-        where: eq(conversations.id, conversationId)
-      });
-
-      if (conversation) {
-        const receiverId =
-          conversation.participant1Id === senderId
-            ? conversation.participant2Id
-            : conversation.participant1Id;
-
-        if (receiverId !== senderId) {
-          const receiver = await this.getUser(receiverId);
-          const sender = await this.getUser(senderId);
-
-          if (receiver && sender) {
-            await this.createNotification({
-            recipientId: recipient.id,
-            actorId: sender.id,
-            entityId: follow.id,
-            type: "follow_request",
-            title: "New follow request",
-            body: `${sender.username} wants to follow you`,
-          });
-
-            if (receiver.email) {
-              const email = newDMEmail(
-                receiver.username || "User",
-                sender.username || "Someone",
-                content.slice(0, 200)
-              );
-
-              await sendEmail({
-                to: receiver.email,
-                subject: email.subject,
-                html: email.html
-              });
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.error("DM email failed:", err);
-    }
-
     await db
       .update(conversations)
       .set({ lastMessageAt: new Date() })
       .where(eq(conversations.id, conversationId));
-    
+
     return msg;
   }
 

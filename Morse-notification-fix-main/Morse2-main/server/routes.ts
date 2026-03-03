@@ -1,10 +1,13 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
+import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
 import { clerkClient, clerkMiddleware, requireAuth, getAuth } from "@clerk/express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { sendReliableMessage } from "./services/messageService";
+import { messagingEventBus, type MessageCreatedEvent } from "./services/messageRealtimeService";
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -915,28 +918,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const conversationId = req.params.id;
+      const idempotencyKeyHeader = req.header("Idempotency-Key") || undefined;
+      const idempotencyKeyBody = typeof req.body?.clientMessageId === "string" ? req.body.clientMessageId : undefined;
+      const idempotencyKey = idempotencyKeyHeader || idempotencyKeyBody;
 
-const message = await storage.sendMessage(conversationId, user.id, content);
+      const message = await sendReliableMessage({
+        conversationId,
+        senderId: user.id,
+        content,
+        idempotencyKey,
+      });
 
-// Get conversation
-const conversation = await storage.getConversationById(conversationId);
-
-// Determine recipient
-const recipientId =
-  conversation.participant1Id === user.id
-    ? conversation.participant2Id
-    : conversation.participant1Id;
-
-if (recipientId !== user.id) {
-  await storage.createNotification({
-    recipientId,
-    actorId: user.id,
-    type: "message",
-    entityId: conversationId,
-  });
-}
-
-res.json(message);
+      res.json(message);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -1137,5 +1130,48 @@ res.json(message);
   });
 
   const httpServer = createServer(app);
+
+  const messageWss = new WebSocketServer({ server: httpServer, path: "/ws/messages" });
+  const clientsByUserId = new Map<string, Set<WebSocket>>();
+
+  messageWss.on("connection", (socket, req) => {
+    const requestUrl = new URL(req.url || "", "http://internal.invalid");
+    const userId = requestUrl.searchParams.get("userId")?.trim();
+
+    if (!userId) {
+      socket.close(1008, "Missing userId");
+      return;
+    }
+
+    const current = clientsByUserId.get(userId) || new Set<WebSocket>();
+    current.add(socket);
+    clientsByUserId.set(userId, current);
+
+    socket.on("close", () => {
+      const set = clientsByUserId.get(userId);
+      if (!set) return;
+      set.delete(socket);
+      if (set.size === 0) {
+        clientsByUserId.delete(userId);
+      }
+    });
+  });
+
+  messagingEventBus.on("message.created", (event: MessageCreatedEvent) => {
+    const sockets = clientsByUserId.get(event.recipientId);
+    if (!sockets || sockets.size === 0) return;
+
+    const payload = JSON.stringify({
+      type: "message.created",
+      data: event,
+    });
+
+    for (const socket of sockets) {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(payload);
+      }
+    }
+  });
+
   return httpServer;
 }
