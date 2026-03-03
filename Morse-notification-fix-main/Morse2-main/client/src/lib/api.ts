@@ -469,7 +469,7 @@ export function useConversations() {
   return useQuery({
     queryKey: ["conversations"],
     queryFn: () => fetchWithAuth(`${API_BASE}/conversations`),
-    refetchInterval: 5000, // Refresh every 5 seconds for real-time updates
+    refetchInterval: 20000, // Light polling fallback (20s)
   });
 }
 
@@ -478,7 +478,7 @@ export function useConversation(conversationId: string) {
     queryKey: ["conversation", conversationId],
     queryFn: () => fetchWithAuth(`${API_BASE}/conversations/${conversationId}`),
     enabled: !!conversationId,
-    refetchInterval: 3000, // Refresh every 3 seconds for real-time messages
+    refetchInterval: 20000, // Light polling fallback (20s)
   });
 }
 

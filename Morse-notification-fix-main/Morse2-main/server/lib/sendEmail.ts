@@ -1,9 +1,10 @@
 import { resend } from "./resend";
+import { env } from "../env";
 
 export async function sendEmail({
   to,
   subject,
-  html
+  html,
 }: {
   to: string;
   subject: string;
@@ -12,9 +13,9 @@ export async function sendEmail({
   if (!to) return;
 
   await resend.emails.send({
-    from: process.env.EMAIL_FROM!,
+    from: env.emailFrom,
     to,
     subject,
-    html
+    html,
   });
 }

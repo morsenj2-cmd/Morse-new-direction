@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { RequestsPage } from "@/pages/RequestsPage";
 import { Switch, Route, Redirect } from "wouter";
 import { AuthenticateWithRedirectCallback } from "@clerk/clerk-react";
@@ -11,6 +12,7 @@ import { ErrorBoundary, ClerkGuard } from "@/components/ErrorBoundary";
 import { PublicHeader } from "@/components/PublicHeader";
 import NotFound from "@/pages/not-found";
 import { useCurrentUser } from "@/lib/api";
+import { startMessageRealtime, stopMessageRealtime } from "./lib/messageRealtime";
 
 import { Desktop } from "@/pages/Desktop";
 import { AboutUs } from "@/pages/AboutUs";
@@ -78,6 +80,22 @@ function ProtectedRoute({ component: Component, skipOnboardingCheck }: { compone
     </>
   );
 }
+
+function RealtimeMessagingBridge() {
+  const { data: currentUser } = useCurrentUser();
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    startMessageRealtime(currentUser.id);
+
+    return () => {
+      stopMessageRealtime();
+    };
+  }, [currentUser?.id]);
+
+  return null;
+}
+
 function Router() {
   return (
     <Switch>
@@ -136,6 +154,7 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <Toaster />
+          <RealtimeMessagingBridge />
           <Router />
         </TooltipProvider>
       </QueryClientProvider>
