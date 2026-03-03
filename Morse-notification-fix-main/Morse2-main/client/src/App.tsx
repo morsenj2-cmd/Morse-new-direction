@@ -29,7 +29,6 @@ import { CommunityDetailPage } from "@/pages/CommunityDetailPage";
 import { ThreadDetailPage } from "@/pages/ThreadDetailPage";
 import { OnboardingTagsPage } from "@/pages/OnboardingTagsPage";
 import { SearchResultsPage } from "@/pages/SearchResultsPage";
-import { HubPage } from "@/pages/HubPage";
 
 function ClerkUnavailableFallback() {
   return (
@@ -116,9 +115,6 @@ function Router() {
       </Route>
       <Route path="/communities">
         <ProtectedRoute component={CommunitiesPage} />
-      </Route>
-      <Route path="/hub/:tagName">
-        <ProtectedRoute component={HubPage} />
       </Route>
       <Route path="/communities/:id">
         <ProtectedRoute component={CommunityDetailPage} />

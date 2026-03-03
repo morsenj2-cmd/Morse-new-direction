@@ -7,15 +7,16 @@ export const FollowRequestsPanel = () => {
   const acceptFollow = useAcceptFollow();
   const declineFollow = useDeclineFollow();
 
-  if (followRequests.length === 0) return null;
-
   return (
     <div className="bg-[#2a2a2a] rounded-lg p-4">
       <h3 className="text-white font-semibold mb-3">Follow requests</h3>
 
-      <div className="space-y-3">
-        {followRequests.map((request: any) => (
-          <div key={request.id} className="p-2 bg-[#3a3a3a] rounded-lg">
+      {followRequests.length === 0 ? (
+        <p className="text-gray-400 text-sm">No pending requests</p>
+      ) : (
+        <div className="space-y-3">
+          {followRequests.map((request: any) => (
+            <div key={request.id} className="p-2 bg-[#3a3a3a] rounded-lg">
               <div className="flex items-center gap-3 mb-2">
                 <div className="w-10 h-10 rounded-full bg-gray-600 flex items-center justify-center overflow-hidden">
                   {request.follower?.avatarUrl ? (
@@ -56,9 +57,10 @@ export const FollowRequestsPanel = () => {
                   Decline
                 </Button>
               </div>
-          </div>
-        ))}
-      </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

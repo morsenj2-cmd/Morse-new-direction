@@ -1,11 +1,7 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, boolean, integer, pgEnum, real, index, uniqueIndex, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, boolean, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-
-export const experienceLevelEnum = pgEnum("experience_level", ["junior", "mid", "senior", "founder"]);
-export const opportunityTypeEnum = pgEnum("opportunity_type", ["job", "freelance", "startup", "repo", "news"]);
-export const userOpportunityActionTypeEnum = pgEnum("user_opportunity_action_type", ["save", "dismiss", "apply", "view"]);
 
 // Users - linked to Clerk authentication
 export const users = pgTable("users", {
@@ -16,62 +12,24 @@ export const users = pgTable("users", {
   bio: text("bio"),
   avatarUrl: text("avatar_url"),
   city: text("city"),
-  openToJobs: boolean("open_to_jobs").notNull().default(true),
-  openToFreelance: boolean("open_to_freelance").notNull().default(false),
-  openToCollab: boolean("open_to_collab").notNull().default(false),
-  emailNotificationsEnabled: boolean("email_notifications_enabled").notNull().default(true),
-  emailMessagesEnabled: boolean("email_messages_enabled").notNull().default(true),
-  experienceLevel: experienceLevelEnum("experience_level"),
   onboardingComplete: boolean("onboarding_complete").default(false),
-  lastSeenAt: timestamp("last_seen_at"),
   createdAt: timestamp("created_at").defaultNow(),
-}, (table) => ({
-  lastSeenIdx: index("users_last_seen_at_idx").on(table.lastSeenAt),
-}));
+});
 
 // Tags - the core of the tag-based system
 export const tags = pgTable("tags", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull().unique(),
-  category: text("category"),
   description: text("description"),
   createdAt: timestamp("created_at").defaultNow(),
-}, (table) => ({
-  nameIdx: index("tags_name_idx").on(table.name),
-}));
+});
 
 // User-Tag relationship (tags users select during onboarding)
 export const userTags = pgTable("user_tags", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   tagId: varchar("tag_id").notNull().references(() => tags.id, { onDelete: "cascade" }),
-
-inferred: boolean("inferred").notNull().default(false),
-weight: real("weight").notNull().default(1),
-lastInteractedAt: timestamp("last_interacted_at").defaultNow(),
-
-}, (table) => ({
-  userTagIdx: index("user_tags_user_id_tag_id_idx").on(table.userId, table.tagId),
-  userTagUnique: uniqueIndex("user_tags_user_id_tag_id_unique").on(table.userId, table.tagId),
-}));
-
-
-// Opportunities
-export const opportunities = pgTable("opportunities", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  type: opportunityTypeEnum("type").notNull(),
-  title: text("title").notNull(),
-  entityName: text("entity_name").notNull(),
-  url: text("url").notNull(),
-  tags: text("tags").array().notNull().default(sql`ARRAY[]::text[]`),
-  location: text("location"),
-  createdAt: timestamp("created_at").defaultNow(),
-  source: text("source").notNull(),
-  qualityScore: real("quality_score").notNull().default(0),
-}, (table) => ({
-  typeCreatedAtIdx: index("opportunities_type_created_at_idx").on(table.type, table.createdAt),
-  createdAtIdIdx: index("opportunities_created_at_id_idx").on(table.createdAt, table.id),
-}));
+});
 
 // Communities
 export const communities = pgTable("communities", {
@@ -166,27 +124,6 @@ export const launchTags = pgTable("launch_tags", {
   tagId: varchar("tag_id").notNull().references(() => tags.id, { onDelete: "cascade" }),
 });
 
-// Opportunity Tags - tags applied to opportunities (launches)
-export const opportunityTags = pgTable("opportunity_tags", {
-  opportunityId: varchar("opportunity_id").notNull().references(() => launches.id, { onDelete: "cascade" }),
-  tagId: varchar("tag_id").notNull().references(() => tags.id, { onDelete: "cascade" }),
-}, (table) => ({
-  opportunityTagIdx: index("opportunity_tags_opportunity_id_tag_id_idx").on(table.opportunityId, table.tagId),
-  opportunityTagUnique: uniqueIndex("opportunity_tags_opportunity_id_tag_id_unique").on(table.opportunityId, table.tagId),
-}));
-
-
-// User opportunity actions
-export const userOpportunityActions = pgTable("user_opportunity_actions", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  opportunityId: varchar("opportunity_id").notNull().references(() => launches.id, { onDelete: "cascade" }),
-  actionType: userOpportunityActionTypeEnum("action_type").notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-}, (table) => ({
-  userOpportunityActionUnique: uniqueIndex("user_opportunity_actions_unique").on(table.userId, table.opportunityId, table.actionType),
-  userOpportunityActionIdx: index("user_opportunity_actions_user_opp_idx").on(table.userId, table.opportunityId),
-}));
 // Launch Upvotes - track which users have upvoted which launches
 export const launchUpvotes = pgTable("launch_upvotes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -248,17 +185,6 @@ export const blogPosts = pgTable("blog_posts", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-
-
-// Message email dispatch state - cooldown tracking per conversation+recipient
-export const messageEmailDispatchState = pgTable("message_email_dispatch_state", {
-  recipientId: varchar("recipient_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  conversationId: varchar("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
-  lastEmailSentAt: timestamp("last_email_sent_at").notNull().defaultNow(),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.recipientId, table.conversationId], name: "message_email_dispatch_state_pk" }),
-  recipientConversationIdx: index("message_email_dispatch_state_recipient_conversation_idx").on(table.recipientId, table.conversationId),
-}));
 // Broadcasts - messages sent to users with matching tags
 export const broadcasts = pgTable("broadcasts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -290,14 +216,12 @@ export const usersRelations = relations(users, ({ many }) => ({
   followersReceived: many(follows, { relationName: "following" }),
   followersGiven: many(follows, { relationName: "follower" }),
   communityMemberships: many(communityMembers),
-  opportunityActions: many(userOpportunityActions),
 }));
 
 export const tagsRelations = relations(tags, ({ many }) => ({
   userTags: many(userTags),
   postTags: many(postTags),
   communityTags: many(communityTags),
-  opportunityTags: many(opportunityTags),
 }));
 
 export const userTagsRelations = relations(userTags, ({ one }) => ({
@@ -353,24 +277,12 @@ export const commentsRelations = relations(comments, ({ one }) => ({
 export const launchesRelations = relations(launches, ({ one, many }) => ({
   creator: one(users, { fields: [launches.creatorId], references: [users.id] }),
   launchTags: many(launchTags),
-  opportunityTags: many(opportunityTags),
-  opportunityActions: many(userOpportunityActions),
   launchUpvotes: many(launchUpvotes),
 }));
 
 export const launchTagsRelations = relations(launchTags, ({ one }) => ({
   launch: one(launches, { fields: [launchTags.launchId], references: [launches.id] }),
   tag: one(tags, { fields: [launchTags.tagId], references: [tags.id] }),
-}));
-
-export const opportunityTagsRelations = relations(opportunityTags, ({ one }) => ({
-  opportunity: one(launches, { fields: [opportunityTags.opportunityId], references: [launches.id] }),
-  tag: one(tags, { fields: [opportunityTags.tagId], references: [tags.id] }),
-}));
-
-export const userOpportunityActionsRelations = relations(userOpportunityActions, ({ one }) => ({
-  user: one(users, { fields: [userOpportunityActions.userId], references: [users.id] }),
-  opportunity: one(launches, { fields: [userOpportunityActions.opportunityId], references: [launches.id] }),
 }));
 
 export const launchUpvotesRelations = relations(launchUpvotes, ({ one }) => ({
@@ -417,7 +329,6 @@ export const insertThreadSchema = createInsertSchema(threads).omit({ id: true, c
 export const insertThreadCommentSchema = createInsertSchema(threadComments).omit({ id: true, createdAt: true });
 export const insertBlogPostSchema = createInsertSchema(blogPosts).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertBroadcastSchema = createInsertSchema(broadcasts).omit({ id: true, createdAt: true });
-export const insertOpportunitySchema = createInsertSchema(opportunities).omit({ id: true, createdAt: true, qualityScore: true });
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -446,8 +357,6 @@ export type BlogPost = typeof blogPosts.$inferSelect;
 export type InsertBlogPost = z.infer<typeof insertBlogPostSchema>;
 export type Broadcast = typeof broadcasts.$inferSelect;
 export type InsertBroadcast = z.infer<typeof insertBroadcastSchema>;
-export type Opportunity = typeof opportunities.$inferSelect;
-export type InsertOpportunity = z.infer<typeof insertOpportunitySchema>;
 
  // Notifications
  export const notifications = pgTable("notifications", {

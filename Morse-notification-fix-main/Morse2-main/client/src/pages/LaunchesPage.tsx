@@ -1,10 +1,10 @@
 import { Link } from "wouter";
-import { Rocket, ChevronUp, Plus, X, Bookmark, BookmarkCheck } from "lucide-react";
+import { Rocket, ChevronUp, Plus, X } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useState } from "react";
-import { useTodaysLaunches, useYesterdaysLaunches, useRecommendedLaunches, useCreateLaunch, useTags, useOpportunityRadar, useSaveOpportunity, useDismissOpportunity } from "@/lib/api";
+import { useTodaysLaunches, useYesterdaysLaunches, useRecommendedLaunches, useCreateLaunch, useTags } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -22,17 +22,12 @@ export const LaunchesPage = (): JSX.Element => {
   const [tagSearchQuery, setTagSearchQuery] = useState("");
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [productImageFile, setProductImageFile] = useState<File | null>(null);
-  const [savedOpportunityIds, setSavedOpportunityIds] = useState<Set<string>>(new Set());
-  const [dismissedOpportunityIds, setDismissedOpportunityIds] = useState<Set<string>>(new Set());
   
   const { data: todaysLaunches = [], isLoading } = useTodaysLaunches();
   const { data: yesterdaysLaunches = [] } = useYesterdaysLaunches();
   const { data: recommendedLaunches = [] } = useRecommendedLaunches();
-  const { data: opportunityRadar } = useOpportunityRadar();
   const { data: allTags = [] } = useTags();
   const createLaunch = useCreateLaunch();
-  const saveOpportunity = useSaveOpportunity();
-  const dismissOpportunity = useDismissOpportunity();
 
   const filteredTags = allTags.filter((tag: any) => 
     tag.name.toLowerCase().includes(tagSearchQuery.toLowerCase()) &&
@@ -68,74 +63,20 @@ export const LaunchesPage = (): JSX.Element => {
     setIsLaunchDialogOpen(false);
   };
 
-
-  const handleSaveOpportunity = async (opportunityId: string) => {
-    setSavedOpportunityIds((prev) => new Set([...prev, opportunityId]));
-    try {
-      await saveOpportunity.mutateAsync(opportunityId);
-    } catch {
-      setSavedOpportunityIds((prev) => {
-        const next = new Set(prev);
-        next.delete(opportunityId);
-        return next;
-      });
-    }
-  };
-
-  const handleDismissOpportunity = async (opportunityId: string) => {
-    setDismissedOpportunityIds((prev) => new Set([...prev, opportunityId]));
-    try {
-      await dismissOpportunity.mutateAsync(opportunityId);
-    } catch {
-      setDismissedOpportunityIds((prev) => {
-        const next = new Set(prev);
-        next.delete(opportunityId);
-        return next;
-      });
-    }
-  };
-
-  const visibleItems = (items: any[]) => items.filter((item: any) => !dismissedOpportunityIds.has(item.id));
-
   const LaunchCard = ({ launch, showUpvotes = false }: { launch: any; showUpvotes?: boolean }) => (
-    <div className="flex items-center gap-3 p-3 bg-[#2a2a2a] rounded-lg border border-gray-700 hover:border-gray-500 transition-colors" data-testid={`card-launch-${launch.id}`}>
-      <Link href={`/launches/${launch.id}`}>
-        <div className="flex items-center gap-3 cursor-pointer">
-          <div className="w-12 h-12 rounded-lg bg-gray-600 flex items-center justify-center overflow-hidden flex-shrink-0">
-            {launch.logoUrl ? (
-              <img src={launch.logoUrl} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <Rocket className="w-6 h-6 text-gray-400" />
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-white font-semibold truncate" data-testid={`text-launch-name-${launch.id}`}>{launch.name}</p>
-            <p className="text-gray-400 text-sm truncate">{launch.tagline}</p>
-          </div>
+    <Link href={`/launches/${launch.id}`}>
+      <div className="flex items-center gap-3 p-3 bg-[#2a2a2a] rounded-lg border border-gray-700 hover:border-gray-500 cursor-pointer transition-colors" data-testid={`card-launch-${launch.id}`}>
+        <div className="w-12 h-12 rounded-lg bg-gray-600 flex items-center justify-center overflow-hidden flex-shrink-0">
+          {launch.logoUrl ? (
+            <img src={launch.logoUrl} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <Rocket className="w-6 h-6 text-gray-400" />
+          )}
         </div>
-      </Link>
-      <div className="ml-auto flex items-center gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="border-gray-600 text-gray-300"
-          onClick={() => handleSaveOpportunity(launch.id)}
-          disabled={savedOpportunityIds.has(launch.id) || saveOpportunity.isPending}
-        >
-          {savedOpportunityIds.has(launch.id) ? <BookmarkCheck className="w-4 h-4 mr-1" /> : <Bookmark className="w-4 h-4 mr-1" />}
-          {savedOpportunityIds.has(launch.id) ? "Saved" : "Save"}
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="border-gray-600 text-gray-300"
-          onClick={() => handleDismissOpportunity(launch.id)}
-          disabled={dismissOpportunity.isPending}
-        >
-          Dismiss
-        </Button>
+        <div className="flex-1 min-w-0">
+          <p className="text-white font-semibold truncate" data-testid={`text-launch-name-${launch.id}`}>{launch.name}</p>
+          <p className="text-gray-400 text-sm truncate">{launch.tagline}</p>
+        </div>
         {showUpvotes && (
           <div className="flex flex-col items-center text-gray-400 border border-gray-600 rounded px-2 py-1">
             <ChevronUp className="w-4 h-4" />
@@ -143,7 +84,7 @@ export const LaunchesPage = (): JSX.Element => {
           </div>
         )}
       </div>
-    </div>
+    </Link>
   );
 
   return (
@@ -314,57 +255,47 @@ export const LaunchesPage = (): JSX.Element => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-8">
             {/* Recommended for you (based on 2+ matching tags) */}
             <div>
-              <h2 className="text-white text-lg font-semibold mb-4" data-testid="text-recommended-title">Market Opportunities For You</h2>
+              <h2 className="text-white text-lg font-semibold mb-4" data-testid="text-recommended-title">Recommended for you</h2>
               <div className="space-y-3">
-                {(visibleItems(opportunityRadar?.topMatches || []).length || visibleItems(recommendedLaunches).length) > 0 ? (
+                {recommendedLaunches.length > 0 ? (
                   <>
-                    {visibleItems(opportunityRadar?.topMatches || recommendedLaunches).slice(0, 4).map((launch: any) => (
-                      <LaunchCard key={`top-matches-${launch.id}`} launch={launch} />
+                    {recommendedLaunches.slice(0, 4).map((launch: any) => (
+                      <LaunchCard key={`recommended-${launch.id}`} launch={launch} />
                     ))}
+                    {recommendedLaunches.length > 4 && (
+                      <button className="text-gray-400 text-sm hover:text-white" data-testid="button-see-more-recommended">See more</button>
+                    )}
                   </>
                 ) : (
-                  <p className="text-gray-400 text-sm" data-testid="text-no-recommendations">No opportunities yet.</p>
+                  <p className="text-gray-400 text-sm" data-testid="text-no-recommendations">No recommendations yet. Launches with 2+ matching tags will appear here.</p>
                 )}
               </div>
             </div>
 
             {/* Today's highest performers */}
             <div>
-              <h2 className="text-white text-lg font-semibold mb-4" data-testid="text-today-highest-title">Emerging Startups</h2>
+              <h2 className="text-white text-lg font-semibold mb-4" data-testid="text-today-highest-title">Today's highest performers</h2>
               <div className="space-y-3">
-                {(visibleItems(opportunityRadar?.emergingStartups || []).length || visibleItems(todaysLaunches).length) > 0 ? (
-                  visibleItems(opportunityRadar?.emergingStartups || todaysLaunches).slice(0, 6).map((launch: any) => (
-                    <LaunchCard key={`emerging-${launch.id}`} launch={launch} showUpvotes />
+                {todaysLaunches.length > 0 ? (
+                  todaysLaunches.slice(0, 6).map((launch: any) => (
+                    <LaunchCard key={`today-${launch.id}`} launch={launch} showUpvotes />
                   ))
                 ) : (
-                  <p className="text-gray-400 text-sm" data-testid="text-no-today">No startups yet.</p>
+                  <p className="text-gray-400 text-sm" data-testid="text-no-today">No launches in the last 24 hours.</p>
                 )}
               </div>
             </div>
 
             {/* Yesterday's highest performers */}
             <div>
-              <h2 className="text-white text-lg font-semibold mb-4" data-testid="text-yesterday-highest-title">Trending In Your Stack</h2>
+              <h2 className="text-white text-lg font-semibold mb-4" data-testid="text-yesterday-highest-title">Yesterday's highest performers</h2>
               <div className="space-y-3">
-                {(visibleItems(opportunityRadar?.trendingInYourStack || []).length || visibleItems(yesterdaysLaunches).length) > 0 ? (
-                  visibleItems(opportunityRadar?.trendingInYourStack || yesterdaysLaunches).slice(0, 6).map((launch: any) => (
-                    <LaunchCard key={`stack-${launch.id}`} launch={launch} showUpvotes />
+                {yesterdaysLaunches.length > 0 ? (
+                  yesterdaysLaunches.map((launch: any) => (
+                    <LaunchCard key={`yesterday-${launch.id}`} launch={launch} showUpvotes />
                   ))
                 ) : (
-                  <p className="text-gray-400 text-sm" data-testid="text-no-yesterday">No stack trends yet.</p>
-                )}
-              </div>
-            </div>
-
-            <div>
-              <h2 className="text-white text-lg font-semibold mb-4" data-testid="text-freelance-signals-title">Freelance Signals</h2>
-              <div className="space-y-3">
-                {(visibleItems(opportunityRadar?.freelanceSignals || []).length || visibleItems(recommendedLaunches).length) > 0 ? (
-                  visibleItems(opportunityRadar?.freelanceSignals || recommendedLaunches).slice(0, 6).map((launch: any) => (
-                    <LaunchCard key={`freelance-${launch.id}`} launch={launch} showUpvotes />
-                  ))
-                ) : (
-                  <p className="text-gray-400 text-sm" data-testid="text-no-freelance-signals">No freelance signals yet.</p>
+                  <p className="text-gray-400 text-sm" data-testid="text-no-yesterday">No launches from yesterday.</p>
                 )}
               </div>
             </div>

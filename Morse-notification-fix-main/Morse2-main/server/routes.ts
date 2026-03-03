@@ -5,14 +5,6 @@ import { clerkClient, clerkMiddleware, requireAuth, getAuth } from "@clerk/expre
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { tagOpportunity } from "./services/opportunityTagger";
-import { updateUserTagWeights, type OpportunityActionType } from "./services/userTagWeightService";
-
-const MAX_PROFILE_TAGS = 25;
-
-function normalizeTagName(name: string): string {
-  return name.toLowerCase().trim().replace(/\s+/g, " ");
-}
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -95,53 +87,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUserByClerkId(userId);
       if (!user) return res.status(404).json({ message: "User not found" });
 
-      const {
-        displayName,
-        bio,
-        tagIds,
-        onboardingComplete,
-        city,
-        openToJobs,
-        openToFreelance,
-        openToCollab,
-        emailNotificationsEnabled,
-        emailMessagesEnabled,
-        experienceLevel,
-      } = req.body;
-
-      if (experienceLevel !== undefined && !["junior", "mid", "senior", "founder", null].includes(experienceLevel)) {
-        return res.status(400).json({ message: "Invalid experience level" });
-      }
-
+      const { displayName, bio, tagIds, onboardingComplete, city } = req.body;
+      
       const updated = await storage.updateUser(user.id, {
         displayName: displayName !== undefined ? displayName : user.displayName,
         bio: bio !== undefined ? bio : user.bio,
         onboardingComplete: onboardingComplete !== undefined ? onboardingComplete : user.onboardingComplete,
         city: city !== undefined ? city : user.city,
-        openToJobs: openToJobs !== undefined ? openToJobs : user.openToJobs,
-        openToFreelance: openToFreelance !== undefined ? openToFreelance : user.openToFreelance,
-        openToCollab: openToCollab !== undefined ? openToCollab : user.openToCollab,
-        emailNotificationsEnabled: emailNotificationsEnabled !== undefined ? emailNotificationsEnabled : user.emailNotificationsEnabled,
-        emailMessagesEnabled: emailMessagesEnabled !== undefined ? emailMessagesEnabled : user.emailMessagesEnabled,
-        experienceLevel: experienceLevel !== undefined ? experienceLevel : user.experienceLevel,
       });
 
-      if (tagIds !== undefined) {
-        if (!Array.isArray(tagIds)) {
-          return res.status(400).json({ message: "tagIds must be an array" });
-        }
-
-        const uniqueTagIds = Array.from(new Set(tagIds));
-        if (uniqueTagIds.length > MAX_PROFILE_TAGS) {
-          return res.status(400).json({ message: `You can select up to ${MAX_PROFILE_TAGS} tags` });
-        }
-    
-        await storage.setUserTags(user.id, uniqueTagIds);
-
-        const isSignupTagSelection = onboardingComplete === true && uniqueTagIds.length === 5;
-        if (isSignupTagSelection) {
-        await storage.addInferredUserTags(user.id, uniqueTagIds);
-    }
+      if (tagIds && Array.isArray(tagIds)) {
+        await storage.setUserTags(user.id, tagIds);
+      }
 
       const userTags = await storage.getUserTags(user.id);
       res.json({ ...updated, tags: userTags });
@@ -162,34 +119,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/tags", requireAuth(), async (req: Request, res: Response) => {
     try {
-      const { name, description, category } = req.body;
-      if (!name || typeof name !== "string") {
-        return res.status(400).json({ message: "Tag name is required" });
-      }
-
-      const normalizedName = normalizeTagName(name);
-      if (!normalizedName) {
-        return res.status(400).json({ message: "Tag name is required" });
-      }
-
-      const existing = await storage.getTagByName(normalizedName);
-      if (existing) {
-        return res.json(existing);
-      }
-
-      const tag = await storage.createTag({
-        name: normalizedName,
-        description: description || null,
-        category: category || null,
-      });
-
+      const { name, description } = req.body;
+      const tag = await storage.createTag({ name, description });
       res.json(tag);
     } catch (error: any) {
-      if (String(error?.message || "").toLowerCase().includes("unique")) {
-        const normalizedName = normalizeTagName(String(req.body?.name || ""));
-        const existing = normalizedName ? await storage.getTagByName(normalizedName) : undefined;
-        if (existing) return res.json(existing);
-      }
       res.status(500).json({ message: error.message });
     }
   });
@@ -295,22 +228,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       } catch {}
 
-      const communitiesWithTags = await Promise.all(
-        allCommunities.map(async (community: any) => {
-          const cTags = await storage.getCommunityTags(community.id);
-          return { ...community, tags: cTags };
-        })
-      );
-
       if (userTagIds.length === 0) {
-        return res.json(communitiesWithTags);
+        return res.json(allCommunities);
       }
 
-      const communitiesWithOverlap = communitiesWithTags.map((community: any) => {
-        const cTagIds = (community.tags || []).map((t: any) => t.id);
-        const overlapCount = cTagIds.filter((id: string) => userTagIds.includes(id)).length;
-        return { ...community, tagOverlapCount: overlapCount };
-      });
+      const communitiesWithOverlap = await Promise.all(
+        allCommunities.map(async (community: any) => {
+          const cTags = await storage.getCommunityTags(community.id);
+          const cTagIds = cTags.map((t: any) => t.id);
+          const overlapCount = cTagIds.filter((id: string) => userTagIds.includes(id)).length;
+          return { ...community, tagOverlapCount: overlapCount };
+        })
+      );
 
       res.json(communitiesWithOverlap);
     } catch (error: any) {
@@ -338,8 +267,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const community = await storage.getCommunity(req.params.id);
       if (!community) return res.status(404).json({ message: "Community not found" });
-      const communityTags = await storage.getCommunityTags(community.id);
-      res.json({ ...community, tags: communityTags });
+      res.json(community);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -579,83 +507,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-
-  app.post("/api/opportunities/:id/save", requireAuth(), async (req: Request, res: Response) => {
-    try {
-      const { userId } = getAuth(req);
-      if (!userId) return res.status(401).json({ message: "Unauthorized" });
-
-      const user = await storage.getUserByClerkId(userId);
-      if (!user) return res.status(404).json({ message: "User not found" });
-
-      const opportunity = await storage.getLaunchById(req.params.id);
-      if (!opportunity) return res.status(404).json({ message: "Opportunity not found" });
-
-      await updateUserTagWeights(user.id, req.params.id, "save");
-      res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.post("/api/opportunities/:id/dismiss", requireAuth(), async (req: Request, res: Response) => {
-    try {
-      const { userId } = getAuth(req);
-      if (!userId) return res.status(401).json({ message: "Unauthorized" });
-
-      const user = await storage.getUserByClerkId(userId);
-      if (!user) return res.status(404).json({ message: "User not found" });
-
-      const opportunity = await storage.getLaunchById(req.params.id);
-      if (!opportunity) return res.status(404).json({ message: "Opportunity not found" });
-
-      await updateUserTagWeights(user.id, req.params.id, "dismiss");
-      res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.post("/api/opportunities/:id/actions", requireAuth(), async (req: Request, res: Response) => {
-    try {
-      const { userId } = getAuth(req);
-      if (!userId) return res.status(401).json({ message: "Unauthorized" });
-
-      const user = await storage.getUserByClerkId(userId);
-      if (!user) return res.status(404).json({ message: "User not found" });
-
-      const actionType = String(req.body?.actionType || "").toLowerCase() as OpportunityActionType;
-      if (!["save", "apply", "view", "dismiss"].includes(actionType)) {
-        return res.status(400).json({ message: "Invalid actionType" });
-      }
-
-      const opportunity = await storage.getLaunchById(req.params.id);
-      if (!opportunity) return res.status(404).json({ message: "Opportunity not found" });
-
-      await updateUserTagWeights(user.id, req.params.id, actionType);
-
-      res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.get("/api/opportunity-radar", requireAuth(), async (req: Request, res: Response) => {
-    try {
-      const { userId } = getAuth(req);
-      if (!userId) return res.status(401).json({ message: "Unauthorized" });
-
-      const user = await storage.getUserByClerkId(userId);
-      if (!user) return res.status(404).json({ message: "User not found" });
-
-      const radar = await storage.getOpportunityRadar(user.id);
-      await storage.updateUser(user.id, { lastSeenAt: new Date() });
-      res.json(radar);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
   app.get("/api/launches/recommended", requireAuth(), async (req: Request, res: Response) => {
     try {
       const { userId } = getAuth(req);
@@ -699,23 +550,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         productImageUrl: productImageUrl || null,
       });
 
-      const autoTags = await tagOpportunity({
-        title: name,
-        description,
-        type: "launch",
-        repoLanguage: req.body?.repoLanguage || req.body?.language || null,
-      });
-
-      const mergedTagIds = Array.from(new Set([
-        ...tagIds,
-        ...autoTags.map((tag) => tag.id),
-      ]));
-
-      // Set the tags for the launch and opportunity mapping
-      await storage.setLaunchTags(launch.id, mergedTagIds);
-      await storage.setOpportunityTags(launch.id, mergedTagIds);
+      // Set the tags for the launch
+      await storage.setLaunchTags(launch.id, tagIds);
       
-      res.json({ ...launch, tags: autoTags });
+      res.json(launch);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

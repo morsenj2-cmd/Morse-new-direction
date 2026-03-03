@@ -94,21 +94,6 @@ export function useTags() {
   });
 }
 
-
-export function useCreateTag() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (data: { name: string; category?: string | null }) =>
-      fetchWithAuth(`${API_BASE}/tags`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tags"] });
-    },
-  });
-}
-
 // Posts hooks
 export function useFeed() {
   return useQuery({
@@ -276,36 +261,6 @@ export function useFollow() {
   });
 }
 
-
-export function useOpportunityAction() {
-  return useMutation({
-    mutationFn: ({ opportunityId, actionType }: { opportunityId: string; actionType: "save" | "apply" | "view" | "dismiss" }) =>
-      fetchWithAuth(`${API_BASE}/opportunities/${opportunityId}/actions`, {
-        method: "POST",
-        body: JSON.stringify({ actionType }),
-      }),
-  });
-}
-
-
-export function useSaveOpportunity() {
-  return useMutation({
-    mutationFn: (opportunityId: string) =>
-      fetchWithAuth(`${API_BASE}/opportunities/${opportunityId}/save`, {
-        method: "POST",
-      }),
-  });
-}
-
-export function useDismissOpportunity() {
-  return useMutation({
-    mutationFn: (opportunityId: string) =>
-      fetchWithAuth(`${API_BASE}/opportunities/${opportunityId}/dismiss`, {
-        method: "POST",
-      }),
-  });
-}
-
 // Launches hooks
 export function useLaunches() {
   return useQuery({
@@ -325,14 +280,6 @@ export function useYesterdaysLaunches() {
   return useQuery({
     queryKey: ["launches", "yesterday"],
     queryFn: () => fetchWithAuth(`${API_BASE}/launches/yesterday`),
-  });
-}
-
-
-export function useOpportunityRadar() {
-  return useQuery({
-    queryKey: ["opportunityRadar"],
-    queryFn: () => fetchWithAuth(`${API_BASE}/opportunity-radar`),
   });
 }
 
