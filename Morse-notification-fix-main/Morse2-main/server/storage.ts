@@ -1157,7 +1157,13 @@ export async function seedTagsIfEmpty(): Promise<void> {
   const existingTags = await db.select().from(tags);
   if (existingTags.length === 0) {
     console.log("Seeding default tags...");
-    await db.insert(tags).values(DEFAULT_TAGS);
+    await db.insert(tags).values(
+      DEFAULT_TAGS.map(t => ({
+      name: t.name,
+      description: t.description,
+      normalizedName: t.name.toLowerCase().trim(),
+   }))
+);
     console.log(`Seeded ${DEFAULT_TAGS.length} tags`);
   }
 }
